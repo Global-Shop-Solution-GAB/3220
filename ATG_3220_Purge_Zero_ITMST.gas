@@ -1,0 +1,90 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Coded by: JCT
+'Project Start Date: 04/12/2011
+'Hooks:
+'  Custom Hook
+'Notes:
+'  To Purge zero quantity rolls from ATG_ITMST_LEN_WIDTH table.
+'  Assumes Purge 0 Item Master records has been done, prior to running
+'  Inventory>Administration>Purge Zero Qty Item Master Records
+
+V.Local.sSel.Declare(String)
+V.Local.sFile.Declare(String)
+V.Local.sRecord.Declare(String)
+V.Local.sDelete.Declare(String)
+V.Local.sLine.Declare(String)
+V.Local.iHndl.Declare(Long)
+V.Local.bError.Declare(Boolean)
+V.Local.iWait.Declare(Long)
+
+F.ODBC.Connection!Con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.String.Concat(V.System.Temp,"\ATG_ITMST_PURGE.csv",V.Local.sFile)
+V.Local.bError.Set(False)
+
+F.Intrinsic.UI.InvokeWaitDialog("Deleting Zero Quantity item from ATG_ITMST_LEN_WIDTH","",V.Local.iHndl)
+'get records for all ATG_ITMST Parts with 0 qty
+F.ODBC.Connection!Con.OpenRecordsetRO("rstA","select * from ATG_ITMST_LEN_WIDTH where TOTAL<=0 order by PART,SERIAL")
+	F.Intrinsic.Control.DoUntil(V.ODBC.Con!rstA.EOF,=,True)
+		F.Intrinsic.Control.If(V.Local.iWait,=,20)
+			V.Local.iWait.Set(0)
+		F.Intrinsic.Control.EndIf
+
+		F.Intrinsic.Math.Add(V.Local.iWait,1,V.Local.iWait)
+		F.Intrinsic.UI.ChangeWaitStatus("Deleting Zero Quantity item from ATG_ITMST_LEN_WIDTH",V.Local.iWait,0,20)
+		F.ODBC.Con!rstA.Record2String(V.Local.sRecord)
+		F.Intrinsic.String.Replace(V.Local.sRecord,"*!*",",",V.Local.sRecord)
+
+'look for these pars on the Item_Master
+		F.Intrinsic.String.Concat("select * from ITEM_MASTER where PART='",V.ODBC.Con!rstA.FieldValTrim!PART,"' and SERIAL_NUMBER='",V.ODBC.Con!rstA.FieldValTrim!SERIAL,"' ",V.Local.sSel)
+		F.ODBC.Connection!Con.OpenRecordsetRO("rstB",V.Local.sSel)
+
+'if the opart/serial has not been purged from the Itme_Master, add "***" flag to the end of the record, indicating that it won't be deleted
+			F.Intrinsic.Control.If(V.ODBC.Con!rstB.EOF,=,False)
+				F.Intrinsic.String.Concat(V.Local.sRecord,",***",V.Local.sRecord)
+				V.Local.bError.Set(True)
+
+'if the part has already been deleted from the Item_Master, delete it from the ATG table
+			F.Intrinsic.Control.Else
+				F.Intrinsic.String.Concat("delete from ATG_ITMST_LEN_WIDTH where PART='",V.ODBC.Con!rstA.FieldValTrim!PART,"' and SERIAL='",V.ODBC.Con!rstA.FieldValTrim!SERIAL,"'",V.Local.sDelete)
+				F.ODBC.Connection!Con.Execute(V.Local.sDelete)
+
+			F.Intrinsic.Control.EndIf
+		F.ODBC.Con!rstB.Close
+			F.Intrinsic.String.Concat(V.Local.sLine,V.Ambient.NewLine,V.Local.sRecord,V.Local.sLine)
+
+	F.ODBC.Con!rstA.MoveNext
+	F.Intrinsic.Control.Loop
+F.ODBC.Con!rstA.Close
+
+F.Intrinsic.UI.CloseWaitDialog
+'if the audit report line is not blank, print the audit report
+F.Intrinsic.Control.If(V.Local.sLine,<>,"")
+	F.Intrinsic.String.Concat("Part,Locn,LOT,BIN,HEAT,SERIAL,QTY,LENGTH,Length UM,WIDTH,Width UM,Total,Total UM,DFAR,USMELT,USMFG,Not Deleted",V.Local.sLine,V.Local.sLine)
+	F.Intrinsic.File.String2File(V.Local.sFile,V.Local.sLine)
+		F.Intrinsic.Control.if(V.Local.bError,=,True)
+			F.Intrinsic.UI.Msgbox("Could not delete all items.  Please review Log.")
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.Task.ShellExec(V.Local.iHndl,"open",V.Local.sFile,"","",1)
+F.Intrinsic.Control.Else
+	F.Intrinsic.UI.Msgbox("No 0 Quantity Items found")
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.CallSub(Unload)
+
+Program.Sub.Main.End
+
+Program.Sub.Unload.Start
+
+F.ODBC.Connection!Con.Close
+f.Intrinsic.Control.End
+
+Program.Sub.Unload.End
+
+
